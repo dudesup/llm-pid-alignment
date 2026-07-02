@@ -7,7 +7,7 @@
 > **Changelog v3 → v4:**
 > - α_max = α_base = 16 (with asymmetric error, u(t) ≤ 0 always → α ∈ [4, 16]; the upper half of the old range was unreachable). HIGH_ALPHA flag removed as dead code; its diagnostic function ("setpoint too aggressive") migrates to a disambiguated LOW_ALPHA flag (Section 8).
 > - Controller update frequency: every **25** steps (40 corrections per 1000-step run, up from 20). Ki rescaled to the update horizon: **Ki = 3 ≈ Kp/10**. Release decay rescaled to **0.9** per update (half-life ≈ 7 updates), consistent with the new accumulation rate. Light EMA (β = 0.5) on the KL measurement.
-> - Gain tuning moved from "after the first 200 steps" (4 data points — not tunable) to **offline plant identification from the full baseline KL trajectory** before the PI branch runs.
+> - Gain tuning moved from "after the first 200 steps" (4 data points — not tunable) to **an offline gain check on the full baseline KL trajectory** before the PI branch runs.
 > - P-dominance is now a **reporting protocol with a quantitative criterion** (Section 10), not a preemptive design concession. Falsifiable prediction added: P-only behavior and the threshold heuristic leave a steady-state error above setpoint; the integral term should eliminate it.
 > - Tail-handling decision for top-k reference log-probs made explicit (Section 5).
 > - Stale v3 remnants fixed: Section 14 no longer references sweep α∈{8,32}; Section 15 note corrected; Section 11 row 3 aligned with the stretch-goal status of the LR-only run; compute budget updated to ~5 sessions.
@@ -120,7 +120,7 @@ Training loop on hh-rlhf chosen
 Every 25 steps : eval KL on control set + log loss + log grad norm
 Every 200 steps: eval perplexity + preference margin on held-out set
 ```
-KL is logged every 25 steps on the baseline as well (not only on closed-loop branches) so that Figure 1 curves have identical density and the offline plant identification (Section 8, gain tuning) has 40 trajectory points to work with.
+KL is logged every 25 steps on the baseline as well (not only on closed-loop branches) so that Figure 1 curves have identical density and the offline gain check (Section 8) has 40 trajectory points to work with.
 
 ### Branch B — Barrier-PI-controlled (dynamic α)
 ```
@@ -146,6 +146,8 @@ Every 25 steps (same frequency and same EMA-filtered KL signal as Branch B):
     if   KL_filt > setpoint:       α *= 0.9
     elif KL_filt < 0.8·setpoint:   α *= 1.05
     α = clip(α, 4, 16)
+
+Every 200 steps: eval perplexity + preference margin on held-out set
 ```
 The heuristic uses the identical measurement pipeline (control set, EMA, update cadence) as the PI branch — the *only* difference between the two closed-loop branches is the control law. Any observed difference is therefore attributable to the control law, not to measurement or timing.
 
@@ -206,7 +208,7 @@ u(t)   = Kp · e(t) + I(t)                 # u ≤ 0 always (barrier)
 - Release decay = 0.9 per update
 - EMA β = 0.5 on the KL measurement
 - α_base = 16, α_min = 4, α_max = 16
-- **Gain tuning: offline, from the baseline run — not online.** "Tune after the first 200 steps" would mean tuning from 4 noisy data points, once each 25-step cadence is accounted for at most 8. Instead: the full baseline KL trajectory (40 points) is used for offline plant identification — estimating the open-loop KL growth rate as a function of α (one static point, α=16, plus α=8 from the sweep) — before the PI branch runs. This is also the control-theoretically correct order: identify the plant, then tune the controller.
+- **Gain tuning: offline, from the baseline run — not online.** "Tune after the first 200 steps" would mean tuning from 4 noisy data points, once each 25-step cadence is accounted for at most 8. Instead: the full baseline KL trajectory (40 points) is used for an offline gain check — estimating the open-loop KL growth rate as a function of α from the two available static points (α=16 baseline, α=8 sweep). To be clear about the rigor involved: this is a linear interpolation between two operating points, not system identification in the formal sense — but it is still the right order of operations (characterise the open-loop response first, then tune the controller), and it is strictly more information than the 4–8 noisy points available from "tune after 200 steps".
 
 **Dual role of α (important for interpretation):**
 `α` simultaneously affects:
@@ -254,7 +256,7 @@ The distinction costs one comparison in the logging callback and saves a debuggi
 **Figure 6:** Preference margin over training steps — baseline vs PI controller. Margin = mean(logP(chosen) − logP(rejected)) on held-out hh-rlhf pairs. A margin that stays positive and stable indicates the model retains constitutional alignment (helpful/harmless preferences) despite fine-tuning. A collapsing margin would indicate "constitutional forgetting" — distinct from the capability forgetting measured by perplexity.
 
 **Evaluation α protocol:**
-Final metrics (loss, perplexity, preference margin) evaluated at the controller's final α value. Sanity check: re-evaluate at α=16 with the same adapter weights (B, A unchanged) — the difference isolates how much "control" is pure adapter suppression vs genuine weight-level forgetting prevention.
+Applies to **both closed-loop branches** (PI controller and threshold heuristic — both have dynamic α and therefore the same potential confound). Final metrics (loss, perplexity, preference margin) evaluated at each branch's final α value. Sanity check: re-evaluate at α=16 with the same adapter weights (B, A unchanged) — the difference isolates how much "control" is pure adapter suppression vs genuine weight-level forgetting prevention.
 
 **P-dominance reporting protocol (check, then report — not assume):**
 After gain tuning, compute the ratio |I(t)| / |Kp·e(t)| over all controller updates with e(t) < 0. **If |I(t)| < 0.2·|Kp·e(t)| for the majority of the run, the system is reported as P-dominant** — stated explicitly in the README, and the PI-vs-heuristic comparison is reinterpreted accordingly (the two control laws then differ only in proportionality of braking). This is a legitimate answer to the research question in Section 2 ("is KL sufficient as a process variable in a closed loop"), not a failure mode to be hidden. The difference between preemptively declaring P-dominance and *measuring* it is exactly the difference between abandoning the research question and answering it.
@@ -289,7 +291,7 @@ Area under the KL curve (control set) is smaller for the PI controller at compar
 - Baseline α=16, 1000 steps — setpoint derived from step-500 checkpoint metrics
 - Sweep α ∈ {8} (1000 steps, end-of-run metrics only; α=16 sourced from baseline run)
 - Threshold heuristic branch (1000 steps, same measurement pipeline as PI branch)
-- **Offline plant identification** from baseline + α=8 KL trajectories → Kp/Ki verification before Week 2
+- **Offline gain check** (open-loop KL growth rate vs α, from baseline + α=8 trajectories) → Kp/Ki verification before Week 2
 
 **Week 2 — Barrier PI Controller:**
 - Barrier PI callback implementation (asymmetric error, EMA, anti-windup, release decay)
@@ -335,7 +337,7 @@ A consistent step count across all branches is required for a valid Pareto compa
 |---|---|---|
 | Baseline α=16 | 1000 | Loss + KL every 25 steps + perplexity + preference margin every 200 steps; setpoint derived post-hoc from step-500 metrics |
 | Sweep α=8 | 1000 | Loss + KL + preference margin at end of run only |
-| Threshold heuristic | 1000 | Loss + KL every 25 steps + α_history + preference margin every 200 steps |
+| Threshold heuristic | 1000 | Loss + KL every 25 steps + α_history + perplexity + preference margin every 200 steps |
 | Barrier PI controller (Branch B) | 1000 | Loss + KL every 25 steps + α_history + I_history + perplexity + preference margin every 200 steps |
 
 **Note:** Sweep = {8} only; the α=16 point on the Pareto front (Figure 5) is sourced from the full baseline run — it is not re-run as a separate sweep entry; α=32 is replaced by the threshold heuristic branch. Total: 4 runs ≈ 5 sessions.
