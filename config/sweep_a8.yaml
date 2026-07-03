@@ -1,0 +1,31 @@
+# Static sweep, alpha=8 (Section 7 "Static sweep"; alpha=16 is covered by baseline.yaml).
+# End-of-run metrics only — do NOT set holdout_eval_every/kl_eval_every lower than
+# total_steps; RunConfig.is_full_logging keys off branch == "sweep" to skip periodic
+# logging regardless, these are just kept consistent for clarity.
+run_name: sweep_alpha8
+branch: sweep
+
+model_name: Qwen/Qwen2.5-3B-Instruct
+lora_r: 8
+alpha: 8.0
+
+seed: 0
+control_set_size: 50
+holdout_wikitext_size: 50
+holdout_hhrlhf_size: 50
+max_seq_len: 512
+topk_logprobs: 1000
+
+total_steps: 1000
+batch_size: 4
+grad_accum_steps: 4
+learning_rate: 0.0002
+grad_clip_max_norm: 1.0
+
+kl_eval_every: 1000
+kl_eval_batch_size: 10
+kl_ema_beta: 0.5
+holdout_eval_every: 1000
+checkpoint_every: 250
+
+output_dir: runs/sweep_alpha8

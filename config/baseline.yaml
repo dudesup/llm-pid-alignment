@@ -1,0 +1,28 @@
+# Branch A — Baseline (static alpha). Section 7, 12, 15.
+run_name: baseline_alpha16
+branch: baseline
+
+model_name: Qwen/Qwen2.5-3B-Instruct
+lora_r: 8
+alpha: 16.0
+
+seed: 0
+control_set_size: 50
+holdout_wikitext_size: 50
+holdout_hhrlhf_size: 50
+max_seq_len: 512
+topk_logprobs: 1000
+
+total_steps: 1000
+batch_size: 4
+grad_accum_steps: 4
+learning_rate: 0.0002
+grad_clip_max_norm: 1.0
+
+kl_eval_every: 25
+kl_eval_batch_size: 10
+kl_ema_beta: 0.5
+holdout_eval_every: 200
+checkpoint_every: 250
+
+output_dir: runs/baseline_alpha16
