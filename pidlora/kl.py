@@ -50,10 +50,11 @@ class EMAFilter:
         self.value = state["value"]
 
 
-def _chunked_logsumexp(logits: torch.Tensor, chunk_size: int = DEFAULT_LOGSUMEXP_CHUNK) -> torch.Tensor:
+def chunked_logsumexp(logits: torch.Tensor, chunk_size: int = DEFAULT_LOGSUMEXP_CHUNK) -> torch.Tensor:
     """logits: [B, T, V] (any float dtype). Returns logsumexp over V as [B, T] fp32,
     computed chunk_size time-positions at a time so peak transient memory is
-    [B, chunk_size, V] instead of [B, T, V]."""
+    [B, chunk_size, V] instead of [B, T, V]. Public: also used by evals.py, which needs
+    the same normalizing constant to convert a gathered target logit into a log-prob."""
     b, t, _ = logits.shape
     out = torch.empty(b, t, device=logits.device, dtype=torch.float32)
     for start in range(0, t, chunk_size):
@@ -144,7 +145,7 @@ def compute_reference_logprobs(
     # a full [B, T, V] fp32 copy up front and make the chunking below pointless (the
     # whole point is to never hold more than [B, chunk_size, V] in fp32 at once).
     topk_raw, topk_indices = torch.topk(logits, k=k, dim=-1)  # [B, T, k], bf16
-    log_z = _chunked_logsumexp(logits, chunk_size=chunk_size)  # [B, T] fp32, casts only per-chunk
+    log_z = chunked_logsumexp(logits, chunk_size=chunk_size)  # [B, T] fp32, casts only per-chunk
     topk_logprobs = topk_raw.float() - log_z.unsqueeze(-1)  # [B, T, k] fp32 — small, k << V
 
     return ReferenceLogProbs(
@@ -181,7 +182,7 @@ def forward_kl_topk(
     # transient the chunking below exists to avoid. Only the small gathered [B, T, k]
     # slice and the chunked logsumexp output need to be fp32.
     gathered_current = torch.gather(current_logits, dim=-1, index=ref_indices).float()  # [B, T, k]
-    log_z_current = _chunked_logsumexp(current_logits, chunk_size=chunk_size)  # [B, T] fp32, per-chunk casts only
+    log_z_current = chunked_logsumexp(current_logits, chunk_size=chunk_size)  # [B, T] fp32, per-chunk casts only
     log_p_current_at_topk = gathered_current - log_z_current.unsqueeze(-1)  # [B, T, k]
 
     kl_per_token = (p_base * (log_p_base - log_p_current_at_topk)).sum(dim=-1)  # [B, T]

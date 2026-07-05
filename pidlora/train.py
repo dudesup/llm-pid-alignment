@@ -219,6 +219,7 @@ def train(cfg: RunConfig, resume: bool) -> None:
             metrics = evals.evaluate_held_out(
                 model, tokenizer, held_out.perplexity_texts, held_out.preference_pairs,
                 data.split_prompt_response, device, cfg.max_seq_len,
+                perplexity_batch_size=cfg.holdout_eval_batch_size,
             )
             logger.log(step=step, event="holdout_eval", perplexity=metrics.perplexity, preference_margin=metrics.preference_margin)
             model.train()
@@ -234,6 +235,7 @@ def train(cfg: RunConfig, resume: bool) -> None:
         metrics = evals.evaluate_held_out(
             model, tokenizer, held_out.perplexity_texts, held_out.preference_pairs,
             data.split_prompt_response, device, cfg.max_seq_len,
+            perplexity_batch_size=cfg.holdout_eval_batch_size,
         )
         logger.log(
             step=cfg.total_steps - 1, event="final_eval", kl_raw=kl_raw,

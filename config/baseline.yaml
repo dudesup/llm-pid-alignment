@@ -23,6 +23,7 @@ kl_eval_every: 25
 kl_eval_batch_size: 10
 kl_ema_beta: 0.5
 holdout_eval_every: 200
+holdout_eval_batch_size: 4
 checkpoint_every: 250
 
 output_dir: runs/baseline_alpha16

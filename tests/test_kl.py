@@ -127,17 +127,29 @@ class TestChunkedMatchesDenseReference:
         revision cast the whole [B, T, V] logits tensor to fp32 before gather/topk —
         semantically identical results (all the other tests here still passed), but the
         chunking became a no-op because the full-size fp32 copy already existed by the
-        time it ran. Correctness tests can't catch that; this asserts directly that
-        `.float()` is never called on a tensor shaped like the full logits, only on the
-        small gathered/topk slices or chunk-sized slices."""
+        time it ran. Correctness tests can't catch that; this asserts directly that no
+        fp32 cast — via `.float()` or `.to(torch.float32)` / `.to(dtype=torch.float32)`
+        — is ever applied to a tensor shaped like the full logits, only to the small
+        gathered/topk slices or chunk-sized slices. Doesn't cover `tensor.to(other_tensor)`
+        (dtype-from-example overload) or `log_softmax(x, dtype=...)` — nobody writes
+        those in this module, and this is meant as a tripwire, not a proof; a real
+        `torch.cuda.max_memory_allocated()` test would be the airtight version."""
         calls: list[tuple[int, ...]] = []
         original_float = torch.Tensor.float
+        original_to = torch.Tensor.to
 
         def recording_float(self):
             calls.append(tuple(self.shape))
             return original_float(self)
 
+        def recording_to(self, *args, **kwargs):
+            requests_fp32 = torch.float32 in args or kwargs.get("dtype") is torch.float32
+            if requests_fp32 and self.dtype is not torch.float32:
+                calls.append(tuple(self.shape))
+            return original_to(self, *args, **kwargs)
+
         monkeypatch.setattr(torch.Tensor, "float", recording_float)
+        monkeypatch.setattr(torch.Tensor, "to", recording_to)
 
         vocab, k, seq_len, batch = 40, 6, 130, 2  # seq_len > chunk_size=64
         torch.manual_seed(7)
@@ -152,8 +164,8 @@ class TestChunkedMatchesDenseReference:
         full_shape = (batch, seq_len, vocab)
         offending = [c for c in calls if c == full_shape]
         assert not offending, (
-            f".float() was called on the full [B,T,V] logits shape {full_shape} "
-            f"({len(offending)}x) — the OOM fix has regressed"
+            f"an fp32 cast (.float() or .to(float32)) was called on the full [B,T,V] "
+            f"logits shape {full_shape} ({len(offending)}x) — the OOM fix has regressed"
         )
 
 

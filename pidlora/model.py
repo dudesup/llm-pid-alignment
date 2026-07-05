@@ -7,7 +7,7 @@ import contextlib
 from typing import Optional
 
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 ADAPTER_NAME = "default"
@@ -36,6 +36,11 @@ def load_model_and_tokenizer(
         device_map=device_map,
         torch_dtype=torch.bfloat16,
     )
+    # Standard QLoRA step: casts layer norms to fp32 (bf16 layer norms are a known
+    # source of instability under 4-bit) and calls enable_input_require_grads so LoRA
+    # still gets gradients if gradient checkpointing is ever turned on for VRAM
+    # headroom — without it that combination silently trains nothing.
+    base_model = prepare_model_for_kbit_training(base_model)
 
     lora_config = LoraConfig(
         r=lora_r,

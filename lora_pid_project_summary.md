@@ -242,7 +242,7 @@ The distinction costs one comparison in the logging callback and saves a debuggi
 | α_history | Controller behavior | Every 25 steps | — |
 | I_history (integral term) | P-dominance diagnostic (Section 10) | Every 25 steps | — |
 | Perplexity | Catastrophic forgetting | Every 200 steps | **Held-out set** |
-| Preference margin | Constitutional alignment retention | Every 200 steps | **Held-out set (hh-rlhf pairs)** |
+| Preference margin | Constitutional alignment retention | Every 200 steps | **Held-out set (hh-rlhf pairs)**; log-probs averaged per response token (length-normalized), not summed |
 
 ---
 
@@ -253,7 +253,7 @@ The distinction costs one comparison in the logging callback and saves a debuggi
 **Figure 3:** Training loss — all branches
 **Figure 4:** α_history and I_history for the PI controller (40 points) — does α oscillate within a sensible range or collapse to the boundary, and does the integral term visibly contribute?
 **Figure 5:** Pareto front: mean loss vs mean KL — 4 points: {α=8, α=16, heuristic, PI controller}. α=16 from baseline run; sweep contributes α=8 only; α=32 replaced by threshold heuristic. Values averaged over last 50 steps (EMA). Three of four points in the low-drift region — the non-trivial comparison.
-**Figure 6:** Preference margin over training steps — baseline vs PI controller. Margin = mean(logP(chosen) − logP(rejected)) on held-out hh-rlhf pairs. A margin that stays positive and stable indicates the model retains constitutional alignment (helpful/harmless preferences) despite fine-tuning. A collapsing margin would indicate "constitutional forgetting" — distinct from the capability forgetting measured by perplexity.
+**Figure 6:** Preference margin over training steps — baseline vs PI controller. Margin = mean(logP(chosen) − logP(rejected)) on held-out hh-rlhf pairs, where each logP is the response's log-probability averaged per token (length-normalized) rather than summed — a raw sum would penalize longer responses independent of their actual quality. A margin that stays positive and stable indicates the model retains constitutional alignment (helpful/harmless preferences) despite fine-tuning. A collapsing margin would indicate "constitutional forgetting" — distinct from the capability forgetting measured by perplexity.
 
 **Evaluation α protocol:**
 Applies to **both closed-loop branches** (PI controller and threshold heuristic — both have dynamic α and therefore the same potential confound). Final metrics (loss, perplexity, preference margin) evaluated at each branch's final α value. Sanity check: re-evaluate at α=16 with the same adapter weights (B, A unchanged) — the difference isolates how much "control" is pure adapter suppression vs genuine weight-level forgetting prevention.

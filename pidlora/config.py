@@ -48,6 +48,7 @@ class RunConfig:
     kl_eval_batch_size: int = 10  # control-set mini-batch size for KL forward passes
     kl_ema_beta: float = 0.5  # smoothing for the kl_filt field logged alongside kl_raw
     holdout_eval_every: int = 200  # skipped entirely for branch == "sweep" (end-of-run only)
+    holdout_eval_batch_size: int = 4  # held-out perplexity mini-batch size
     checkpoint_every: int = 250
 
     # Paths — output_dir should be a Drive-mounted path in Colab so it survives a disconnect

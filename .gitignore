@@ -5,3 +5,4 @@ runs/
 *.pt
 *.safetensors
 .ipynb_checkpoints/
+.venv/
