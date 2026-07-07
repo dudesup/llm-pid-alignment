@@ -73,7 +73,12 @@ def maybe_resume(output_dir: str, model, optimizer, resume: bool = True) -> tupl
     adapter_state = load_safetensors(str(adapter_weights_path))
     set_peft_model_state_dict(model, adapter_state, adapter_name="default")
 
-    state = torch.load(step_dir / "trainer_state.pt", map_location="cpu")
+    # weights_only=False: PyTorch 2.6 defaults torch.load to weights_only=True, which
+    # rejects this blob outright (it carries numpy RNG state and optimizer state, not
+    # just tensors — "Unsupported global: numpy._core.multiarray._reconstruct").
+    # Always our own locally-written checkpoint, never an untrusted external file, so
+    # the security tradeoff weights_only exists for doesn't apply here.
+    state = torch.load(step_dir / "trainer_state.pt", map_location="cpu", weights_only=False)
     optimizer.load_state_dict(state["optimizer"])
 
     random.setstate(state["rng_python"])

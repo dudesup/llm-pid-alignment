@@ -8,6 +8,7 @@ branch: sweep
 model_name: Qwen/Qwen2.5-3B-Instruct
 lora_r: 8
 alpha: 8.0
+use_4bit: true
 
 seed: 0
 control_set_size: 50

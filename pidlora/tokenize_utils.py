@@ -16,8 +16,21 @@ def encode_prompt_response(tokenizer, prompt: str, response: str, max_len: int):
     if tokenizer.eos_token_id is not None:
         response_ids = response_ids + [tokenizer.eos_token_id]
 
-    input_ids = (prompt_ids + response_ids)[:max_len]
-    labels = ([IGNORE_INDEX] * len(prompt_ids) + response_ids)[:max_len]
+    # Truncate the PROMPT from the left (keep its tail), not the sequence from the
+    # right — hh-rlhf's multi-turn prompts routinely exceed max_len on their own, and
+    # right-truncation would silently drop the entire response, leaving an example
+    # with zero supervised tokens. HF's internal cross-entropy then divides 0/0 for
+    # that example (NaN loss), observed directly in a Faza 0 smoke test at
+    # max_seq_len=64; the same failure mode is reachable at max_seq_len=512 with long
+    # enough real conversations, just rarer. response_ids is also capped to max_len as
+    # a last resort for the (pathological) case where the response alone exceeds it.
+    response_ids = response_ids[:max_len]
+    max_prompt_len = max(0, max_len - len(response_ids))
+    if len(prompt_ids) > max_prompt_len:
+        prompt_ids = prompt_ids[-max_prompt_len:] if max_prompt_len > 0 else []
+
+    input_ids = prompt_ids + response_ids
+    labels = [IGNORE_INDEX] * len(prompt_ids) + response_ids
     attention_mask = [1] * len(input_ids)
     return input_ids, attention_mask, labels
 

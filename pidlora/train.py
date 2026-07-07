@@ -109,7 +109,7 @@ def train(cfg: RunConfig, resume: bool) -> None:
     logger.log(step=0, event="run_start", config=cfg.to_dict())
 
     model, tokenizer = model_utils.load_model_and_tokenizer(
-        cfg.model_name, cfg.lora_r, cfg.alpha, cfg.lora_target_modules
+        cfg.model_name, cfg.lora_r, cfg.alpha, cfg.lora_target_modules, use_4bit=cfg.use_4bit
     )
     model_utils.set_lora_scaling(model, alpha=cfg.alpha, r=cfg.lora_r)
 

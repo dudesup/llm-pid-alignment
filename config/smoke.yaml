@@ -1,0 +1,37 @@
+# Faza 0 — smoke test, NOT a real experiment branch. Genuinely tiny random-weight
+# Qwen2.5 test model (same tokenizer/architecture family as the real
+# Qwen2.5-3B-Instruct, so prompt/response splitting and masking exercise identical
+# code paths, but ~2.4M params instead of 3B — seconds per step on CPU, not minutes).
+# CPU-friendly (use_4bit: false — bitsandbytes 4-bit needs CUDA). Purpose: prove the
+# full pipeline (data -> reference cache -> train loop -> KL/holdout eval ->
+# checkpoint -> resume -> metrics.jsonl -> plots) works end-to-end before spending a
+# Colab session on it.
+run_name: smoke
+branch: baseline
+
+model_name: yujiepan/qwen2.5-tiny-random
+lora_r: 8
+alpha: 16.0
+use_4bit: false
+
+seed: 0
+control_set_size: 6
+holdout_wikitext_size: 4
+holdout_hhrlhf_size: 4
+max_seq_len: 64
+topk_logprobs: 200
+
+total_steps: 20
+batch_size: 2
+grad_accum_steps: 1
+learning_rate: 0.0002
+grad_clip_max_norm: 1.0
+
+kl_eval_every: 4
+kl_eval_batch_size: 3
+kl_ema_beta: 0.5
+holdout_eval_every: 8
+holdout_eval_batch_size: 2
+checkpoint_every: 6
+
+output_dir: runs/smoke

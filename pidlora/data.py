@@ -68,7 +68,12 @@ class HeldOutSet:
 
 
 def _wikitext_lines(min_chars: int = 80, max_chars: int = 600) -> list[str]:
-    ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+    # "wikitext" (no namespace) is the legacy loading-script dataset — datasets>=3.0
+    # dropped script-based loading and this now fails with an HfUriError at import
+    # time, not a clear "deprecated" error (caught by the Faza 0 smoke test before it
+    # could burn a real Colab session). "Salesforce/wikitext" is the parquet-format
+    # mirror of the same data and is the currently maintained way to load it.
+    ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="train")
     lines = [t.strip() for t in ds["text"] if min_chars <= len(t.strip()) <= max_chars]
     return lines
 

@@ -6,3 +6,4 @@ runs/
 *.safetensors
 .ipynb_checkpoints/
 .venv/
+.claude/

@@ -27,6 +27,8 @@ class RunConfig:
     lora_r: int = 8
     lora_target_modules: tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
     alpha: float = 16.0  # static for the run's whole duration
+    use_4bit: bool = True  # False for CPU smoke tests — bitsandbytes 4-bit needs CUDA;
+                            # real T4 runs must keep this True (Section 5 VRAM budget)
 
     # Data (Section 5, 6)
     seed: int = 0

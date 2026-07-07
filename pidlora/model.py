@@ -19,28 +19,38 @@ def load_model_and_tokenizer(
     lora_alpha: float,
     target_modules: tuple[str, ...],
     device_map: str = "auto",
+    use_4bit: bool = True,
 ):
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
+    """use_4bit=False is for CPU smoke tests only (bitsandbytes 4-bit needs CUDA) — real
+    T4 runs must keep it True, it's what the Section 5 VRAM budget assumes."""
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    base_model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        quantization_config=bnb_config,
-        device_map=device_map,
-        torch_dtype=torch.bfloat16,
-    )
-    # Standard QLoRA step: casts layer norms to fp32 (bf16 layer norms are a known
-    # source of instability under 4-bit) and calls enable_input_require_grads so LoRA
-    # still gets gradients if gradient checkpointing is ever turned on for VRAM
-    # headroom — without it that combination silently trains nothing.
-    base_model = prepare_model_for_kbit_training(base_model)
+    if use_4bit:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=bnb_config,
+            device_map=device_map,
+            dtype=torch.bfloat16,
+        )
+        # Standard QLoRA step: casts layer norms to fp32 (bf16 layer norms are a known
+        # source of instability under 4-bit) and calls enable_input_require_grads so
+        # LoRA still gets gradients if gradient checkpointing is ever turned on for
+        # VRAM headroom — without it that combination silently trains nothing.
+        base_model = prepare_model_for_kbit_training(base_model)
+    else:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map=device_map,
+            dtype=torch.bfloat16,
+        )
 
     lora_config = LoraConfig(
         r=lora_r,
