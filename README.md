@@ -1,6 +1,6 @@
 # PID-LoRA: Catastrophic Forgetting as a Closed-Loop Control Problem
 
-> 🚧 **Work in progress.** Experimental design is complete (v4, see
+> 🚧 **Work in progress.** Experimental design is complete (v7, see
 > [`lora_pid_project_summary.md`](lora_pid_project_summary.md)); infrastructure is built
 > and validated end-to-end (unit tests + a local smoke test on a tiny model, including a
 > simulated disconnect/resume cycle). GPU access (Colab Pro) is now set up; training runs
@@ -18,7 +18,7 @@ frozen control set every 25 steps and dynamically brakes α to keep drift within
 ## Research question
 
 > Does closed-loop regulation of α via a KL-driven barrier PI controller yield a better
-> learning/forgetting trade-off than (a) static α and (b) an open-loop threshold
+> learning/forgetting trade-off than (a) static open-loop α and (b) a threshold
 > heuristic — and is KL divergence a sufficient process variable for the loop?
 
 "The integral term turns out to do nothing" is an acceptable answer — the experiment is
@@ -27,17 +27,27 @@ designed to detect that outcome (see P-dominance protocol below), not to assume 
 ### The falsifiable prediction
 
 The disturbance in this system is training itself: gradient descent pushes KL upward at
-every step. Against a persistent disturbance:
+every step. The threshold heuristic's `α *= 0.9` fires unconditionally on every
+violating update, with no bound until the clip — that makes it a quantized-step
+(bang-bang) integral controller, not a proportional brake. So **both** closed-loop
+branches have integral action, and both are expected to bring KL down toward the
+setpoint; neither should leave a persistent offset (a true proportional-only brake isn't
+implemented by any branch here — see §3 of the design doc).
 
-- Proportional-only braking and the threshold heuristic must settle *above* the
-  setpoint — they need a standing error to generate any braking signal at all
-  (classic steady-state offset).
-- The integral term accumulates the violation and keeps tightening α until KL
-  returns to the setpoint.
+The prediction is about **how** each branch converges, not whether it does:
 
-**Prediction:** the PI branch converges to the setpoint; the heuristic oscillates above
-it. If the KL trajectories do not show this separation, the PI machinery is not
-justified for this system — and that gets reported as the headline result.
+- The heuristic's fixed step sizes (0.9 down / 1.05 up) and hysteresis band should
+  produce a **limit cycle** — bounded oscillation of roughly constant amplitude around
+  the setpoint.
+- The PI branch's continuous, magnitude-proportional correction should produce
+  **smoother, decaying oscillation into a narrower band**, with lower KL variance in
+  the second half of training.
+
+**Prediction:** Figure 1 shows the heuristic oscillating at roughly constant amplitude
+and the PI branch settling into a visibly tighter band around the setpoint. If the two
+branches show no difference in variance/amplitude, the added PI machinery is not
+justified for this system over the cheaper heuristic — and that gets reported as the
+headline result.
 
 ## Design highlights
 
@@ -58,7 +68,17 @@ justified for this system — and that gets reported as the headline result.
   (control set, EMA, cadence) so any difference is attributable to the control law alone.
 - **P-dominance protocol.** After the runs, `|I(t)| / |Kp·e(t)|` is computed over all
   braking updates. If the integral contributes < 20% for most of the run, the system is
-  reported as P-dominant — measured, not assumed.
+  reported as P-dominant — measured, not assumed. P-dominance and Figure 1's convergence
+  read aren't independent evidence: near true convergence `e(t) → 0` forces the integral
+  to carry the braking load, so sustained P-dominance mechanically implies an offset, not
+  convergence — if the data show both together, that's a pipeline bug to debug (most
+  likely `I_history` logging or anti-windup), not a joint finding. See §10.
+- **‖B·A‖ tug-of-war diagnostic.** Braking α also weakens the gradient signal reaching the
+  adapter, but training keeps pushing — so `‖B·A‖` can grow to compensate for the
+  shrinking `α/r` scale even while α is visibly suppressed. Logged every 25 steps
+  (global scalar) and every 200 steps (per-layer breakdown, since the tug-of-war need not
+  be uniform across layers) via the exact trace identity
+  `‖BA‖²_F = tr((BᵀB)(AAᵀ))`. See §8/§9.
 - **Anti-windup, release decay, disambiguated failure flags** — see §8 of the
   [design doc](lora_pid_project_summary.md) for the full control law and gain-scaling
   rationale.
@@ -73,12 +93,17 @@ justified for this system — and that gets reported as the headline result.
 
 ## Status
 
-- [x] Experimental design (v4) — controller redesign, asymmetry consequences, gain scaling
+- [x] Experimental design (v7) — controller redesign, asymmetry consequences, gain
+      scaling, control-law reclassification, ‖BA‖ tug-of-war diagnostic
 - [x] Infrastructure — data/KL/checkpoint/logging pipeline, unit-tested and validated with
       a local smoke test (tiny model, simulated disconnect/resume cycle)
 - [x] Baseline (α=16) and sweep (α=8) training code — implemented and tested; not yet
       run on real GPU
-- [ ] Offline setpoint/gain-check scripts — not yet implemented in this repo
+- [ ] ‖B·A‖ Frobenius norm logging (global + per-layer) — computation is unit-tested
+      (7 tests) and wired into the training loop; not yet exercised by the smoke test or
+      a real run
+- [ ] Offline setpoint/gain-check scripts (`scripts/compute_setpoint.py`,
+      `scripts/gain_check.py`) — written, no unit tests, never run against real metrics
 - [ ] Threshold heuristic controller — not implemented yet, deliberately deferred until
       real baseline/sweep data exists to inform it
 - [ ] Barrier PI controller — not implemented yet, depends on the offline gain check above
