@@ -212,7 +212,8 @@ def train(cfg: RunConfig, resume: bool) -> None:
         if do_periodic and (step % cfg.kl_eval_every == 0 or is_last_step):
             kl_raw = compute_current_kl(model, control_ids, control_mask, reference, device, cfg.kl_eval_batch_size)
             kl_filt = kl_ema.update(kl_raw)
-            logger.log(step=step, event="kl_eval", kl_raw=kl_raw, kl_filt=kl_filt)
+            bA_norm = model_utils.lora_bA_frobenius_norm(model)
+            logger.log(step=step, event="kl_eval", kl_raw=kl_raw, kl_filt=kl_filt, bA_frobenius_norm=bA_norm)
             model.train()
 
         if do_periodic and (step % cfg.holdout_eval_every == 0 or is_last_step):
@@ -222,6 +223,11 @@ def train(cfg: RunConfig, resume: bool) -> None:
                 perplexity_batch_size=cfg.holdout_eval_batch_size,
             )
             logger.log(step=step, event="holdout_eval", perplexity=metrics.perplexity, preference_margin=metrics.preference_margin)
+            # Per-layer ‖BA‖ breakdown (Section 9, v6): the global scalar above (kl_eval,
+            # every 25 steps) can look flat from cross-layer cancellation — this supplement
+            # is layer-resolved, at the cheaper 200-step cadence since it's diagnostic only.
+            bA_norms_by_layer = model_utils.lora_bA_frobenius_norms_by_layer(model)
+            logger.log(step=step, event="bA_frobenius_norm_by_layer", norms=bA_norms_by_layer)
             model.train()
 
         if (step % cfg.checkpoint_every == 0 and step > start_step) or is_last_step:
@@ -232,13 +238,14 @@ def train(cfg: RunConfig, resume: bool) -> None:
     if not cfg.is_full_logging:
         # sweep branches: end-of-run metrics only (Section 15)
         kl_raw = compute_current_kl(model, control_ids, control_mask, reference, device, cfg.kl_eval_batch_size)
+        bA_norm = model_utils.lora_bA_frobenius_norm(model)
         metrics = evals.evaluate_held_out(
             model, tokenizer, held_out.perplexity_texts, held_out.preference_pairs,
             data.split_prompt_response, device, cfg.max_seq_len,
             perplexity_batch_size=cfg.holdout_eval_batch_size,
         )
         logger.log(
-            step=cfg.total_steps - 1, event="final_eval", kl_raw=kl_raw,
+            step=cfg.total_steps - 1, event="final_eval", kl_raw=kl_raw, bA_frobenius_norm=bA_norm,
             perplexity=metrics.perplexity, preference_margin=metrics.preference_margin,
         )
 

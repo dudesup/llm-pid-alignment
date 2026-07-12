@@ -90,6 +90,46 @@ def get_lora_scaling(model, adapter_name: str = ADAPTER_NAME) -> Optional[float]
     return None
 
 
+def _lora_layers_named(model):
+    for name, module in model.named_modules():
+        if hasattr(module, "scaling") and isinstance(getattr(module, "scaling"), dict):
+            yield name, module
+
+
+@torch.no_grad()
+def lora_bA_frobenius_norms_by_layer(model, adapter_name: str = ADAPTER_NAME) -> dict[str, float]:
+    """Per-layer ||B_l @ A_l||_F (design doc Section 9, v6): the suppression-vs-compensation
+    tug-of-war (Section 8) need not be uniform across layers, and the global scalar
+    (lora_bA_frobenius_norm) can read flat purely from cross-layer cancellation in the sum
+    — this is the layer-resolved diagnostic supplement, logged at the 200-step cadence.
+
+    Uses ||BA||_F^2 = tr((B^T B)(A A^T)) instead of materializing the full
+    (out_features x in_features) delta matrix — both factors are r x r, so this is
+    O(r^2 * (in+out)) per layer instead of O(r * in * out). Exact, not an approximation.
+    """
+    norms = {}
+    for name, module in _lora_layers_named(model):
+        if adapter_name not in module.lora_A or adapter_name not in module.lora_B:
+            continue
+        A = module.lora_A[adapter_name].weight  # (r, in_features)
+        B = module.lora_B[adapter_name].weight  # (out_features, r)
+        BtB = B.T @ B  # (r, r), symmetric
+        AAt = A @ A.T  # (r, r), symmetric
+        norm_sq = torch.sum(BtB * AAt).item()  # tr(BtB @ AAt) via elementwise sum (both symmetric)
+        norms[name] = norm_sq ** 0.5
+    return norms
+
+
+def lora_bA_frobenius_norm(model, adapter_name: str = ADAPTER_NAME) -> float:
+    """sqrt(sum over LoRA layers of ||B_l @ A_l||_F^2) — treats every layer's B@A as a
+    block of one big block-diagonal matrix. Tracks adapter weight-space growth
+    independent of the alpha/r output scale (design doc Section 8/9: the
+    suppression-vs-compensation tug-of-war diagnostic, Figure 4b). Global counterpart of
+    lora_bA_frobenius_norms_by_layer — matches global alpha's scale."""
+    norms = lora_bA_frobenius_norms_by_layer(model, adapter_name)
+    return sum(n * n for n in norms.values()) ** 0.5
+
+
 @contextlib.contextmanager
 def adapter_disabled(model):
     """Disable the LoRA adapter entirely — used to compute frozen base-model reference
